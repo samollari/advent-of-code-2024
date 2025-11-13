@@ -3,8 +3,6 @@ use anyhow::*;
 use code_timing_macros::time_snippet;
 use const_format::concatcp;
 use itertools::Itertools;
-use std::cmp::min;
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Lines};
 
@@ -40,7 +38,7 @@ fn extract_xy_parts_from_line(line: String) -> Option<(usize, usize)> {
     ));
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Button {
     x_step: usize,
     y_step: usize,
@@ -98,43 +96,40 @@ fn parse_input<T: BufRead>(reader: T) -> Vec<Machine> {
         .collect_vec()
 }
 
-fn find_possible_solutions(a_step: usize, b_step: usize, goal: usize) -> HashSet<(usize, usize)> {
-    let max_a_step = min(goal / a_step, 100);
-
-    (1..=max_a_step)
-        .filter_map(|count_a| {
-            let rem_for_b = goal - (count_a * a_step);
-            let count_b = rem_for_b / b_step;
-            let rem = rem_for_b - (count_b * b_step);
-
-            if rem == 0 && count_b <= 100 {
-                Some((count_a, count_b))
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
 fn attempt_find_min_tokens_to_prize(machine: &Machine) -> Option<usize> {
-    let x_solutions = find_possible_solutions(
-        machine.a_button.x_step,
-        machine.b_button.x_step,
-        machine.prize_loc.x,
-    );
-    let y_solutions = find_possible_solutions(
-        machine.a_button.y_step,
-        machine.b_button.y_step,
-        machine.prize_loc.y,
-    );
+    let a_press_numerator = (machine.prize_loc.x * machine.b_button.y_step) as isize
+        - (machine.prize_loc.y * machine.b_button.x_step) as isize;
 
-    println!("{:?} {:?} {:?}", machine, x_solutions, y_solutions);
+    let a_press_denominator = (machine.a_button.x_step * machine.b_button.y_step) as isize
+        - (machine.a_button.y_step * machine.b_button.x_step) as isize;
 
-    x_solutions
-        .intersection(&y_solutions)
-        .map(|(a_presses, b_presses)| 3 * a_presses + b_presses)
-        .sorted()
-        .next()
+    if (a_press_numerator < 0) ^ (a_press_denominator < 0) {
+        return None;
+    }
+
+    if a_press_numerator % a_press_denominator != 0 {
+        return None;
+    }
+    let a_presses = a_press_numerator / a_press_denominator;
+    assert!(a_presses >= 0);
+    let a_presses = a_presses as usize;
+
+    let b_press_numerator =
+        machine.prize_loc.x as isize - (a_presses * machine.a_button.x_step) as isize;
+
+    if b_press_numerator < 0 {
+        return None;
+    }
+    let b_press_numerator = b_press_numerator as usize;
+
+    if b_press_numerator % machine.b_button.x_step != 0 {
+        return None;
+    }
+    let b_presses = b_press_numerator / machine.b_button.x_step;
+
+    let tokens = 3 * a_presses + b_presses;
+
+    return Some(tokens);
 }
 
 fn main() -> Result<()> {
@@ -145,7 +140,6 @@ fn main() -> Result<()> {
 
     fn part1<R: BufRead>(reader: R) -> Result<usize> {
         let machines = parse_input(reader);
-        // println!("{:?}", machines);
 
         Ok(machines
             .iter()
@@ -161,17 +155,38 @@ fn main() -> Result<()> {
     //endregion
 
     //region Part 2
-    // println!("\n=== Part 2 ===");
-    //
-    // fn part2<R: BufRead>(reader: R) -> Result<usize> {
-    //     Ok(0)
-    // }
-    //
-    // assert_eq!(0, part2(BufReader::new(TEST.as_bytes()))?);
-    //
-    // let input_file = BufReader::new(File::open(INPUT_FILE)?);
-    // let result = time_snippet!(part2(input_file)?);
-    // println!("Result = {}", result);
+    println!("\n=== Part 2 ===");
+
+    fn part2<R: BufRead>(reader: R) -> Result<usize> {
+        let machines = parse_input(reader)
+            .iter()
+            .map(
+                |Machine {
+                     a_button,
+                     b_button,
+                     prize_loc,
+                 }| Machine {
+                    a_button: a_button.clone(),
+                    b_button: b_button.clone(),
+                    prize_loc: Coord {
+                        x: prize_loc.x + 10000000000000,
+                        y: prize_loc.y + 10000000000000,
+                    },
+                },
+            )
+            .collect_vec();
+
+        Ok(machines
+            .iter()
+            .filter_map(attempt_find_min_tokens_to_prize)
+            .sum())
+    }
+
+    assert_eq!(875318608908, part2(BufReader::new(TEST.as_bytes()))?);
+
+    let input_file = BufReader::new(File::open(INPUT_FILE)?);
+    let result = time_snippet!(part2(input_file)?);
+    println!("Result = {}", result);
     //endregion
 
     Ok(())
