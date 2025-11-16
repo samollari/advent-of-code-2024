@@ -9,12 +9,20 @@ use std::io::{BufRead, BufReader};
 const DAY: &str = "17";
 const INPUT_FILE: &str = concatcp!("input/", DAY, ".txt");
 
-const TEST: &str = "\
+const TEST_PART1: &str = "\
 Register A: 729
 Register B: 0
 Register C: 0
 
 Program: 0,1,5,4,3,0
+";
+
+const TEST_PART2: &str = "\
+Register A: 2024
+Register B: 0
+Register C: 0
+
+Program: 0,3,5,4,3,0
 ";
 
 fn assert_3bit(val: u8) {
@@ -113,7 +121,7 @@ impl Instruction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Machine {
     reg_a: usize,
     reg_b: usize,
@@ -125,17 +133,8 @@ fn parse_reg_value(line: String) -> usize {
     line.trim()[12..].parse().unwrap()
 }
 
-fn parse_program<R: BufRead>(reader: R) -> (Machine, Vec<Instruction>) {
-    let mut lines = reader.lines();
-
-    let reg_a = parse_reg_value(lines.next().expect("Register A").unwrap());
-    let reg_b = parse_reg_value(lines.next().expect("Register B").unwrap());
-    let reg_c = parse_reg_value(lines.next().expect("Register C").unwrap());
-    let _ = lines.next().unwrap().unwrap();
-
-    let program_line = lines.next().unwrap().unwrap();
-
-    let program_contents = program_line[9..]
+fn parse_instructions(instructions: &String) -> Vec<Instruction> {
+    instructions
         .split(',')
         .map(|val| val.to_string())
         .chunks(2)
@@ -150,7 +149,18 @@ fn parse_program<R: BufRead>(reader: R) -> (Machine, Vec<Instruction>) {
             (instr, op)
         })
         .map(Instruction::from)
-        .collect_vec();
+        .collect()
+}
+
+fn parse_program<R: BufRead>(reader: R) -> (Machine, String) {
+    let mut lines = reader.lines();
+
+    let reg_a = parse_reg_value(lines.next().expect("Register A").unwrap());
+    let reg_b = parse_reg_value(lines.next().expect("Register B").unwrap());
+    let reg_c = parse_reg_value(lines.next().expect("Register C").unwrap());
+    let _ = lines.next().unwrap().unwrap();
+
+    let instructions = lines.next().unwrap().unwrap()[9..].to_string();
 
     let machine = Machine {
         reg_a,
@@ -159,11 +169,58 @@ fn parse_program<R: BufRead>(reader: R) -> (Machine, Vec<Instruction>) {
         output: vec![],
     };
 
-    (machine, program_contents)
+    (machine, instructions)
 }
 
 fn calc_division(operand: &ComboOperand, machine: &Machine) -> usize {
     machine.reg_a / 2_usize.pow(operand.get_value(machine).try_into().unwrap())
+}
+
+fn execute(mut machine: Machine, instructions: &Vec<Instruction>) -> String {
+    let mut ip: usize = 0;
+
+    loop {
+        assert!(ip % 2 == 0); // TODO: If not, have to parse instructions at runtime
+
+        let idx = ip / 2;
+        if idx >= instructions.len() {
+            // HALT
+            break;
+        }
+
+        let instruction = &instructions[idx];
+
+        // println!("\t{:?}\n({}): {:?}", machine, ip, instruction);
+
+        ip += 2;
+
+        match instruction {
+            Instruction::ADV(combo_operand) => {
+                machine.reg_a = calc_division(combo_operand, &machine)
+            }
+            Instruction::BXL(operand) => machine.reg_b = machine.reg_b ^ (*operand as usize),
+            Instruction::BST(combo_operand) => {
+                machine.reg_b = combo_operand.get_value(&machine) & 0b111
+            }
+            Instruction::JNZ(operand) => {
+                if machine.reg_a != 0 {
+                    ip = *operand as usize
+                }
+            }
+            Instruction::BXC => machine.reg_b = machine.reg_b ^ machine.reg_c,
+            Instruction::OUT(combo_operand) => machine
+                .output
+                .push((combo_operand.get_value(&machine) & 0b111) as u8),
+            Instruction::BDV(combo_operand) => {
+                machine.reg_b = calc_division(combo_operand, &machine)
+            }
+            Instruction::CDV(combo_operand) => {
+                machine.reg_c = calc_division(combo_operand, &machine)
+            }
+        }
+    }
+
+    machine.output.into_iter().join(",")
 }
 
 fn main() -> Result<()> {
@@ -173,57 +230,15 @@ fn main() -> Result<()> {
     println!("=== Part 1 ===");
 
     fn part1<R: BufRead>(reader: R) -> Result<String> {
-        let (mut machine, instructions) = parse_program(reader);
+        let (machine, instructions) = parse_program(reader);
+        let instructions = parse_instructions(&instructions);
 
-        let mut ip: usize = 0;
-
-        loop {
-            assert!(ip % 2 == 0); // TODO: If not, have to parse instructions at runtime
-
-            let idx = ip / 2;
-            if idx >= instructions.len() {
-                // HALT
-                break;
-            }
-
-            let instruction = &instructions[idx];
-
-            println!("\t{:?}\n({}): {:?}", machine, ip, instruction);
-
-            ip += 2;
-
-            match instruction {
-                Instruction::ADV(combo_operand) => {
-                    machine.reg_a = calc_division(combo_operand, &machine)
-                }
-                Instruction::BXL(operand) => machine.reg_b = machine.reg_b ^ (*operand as usize),
-                Instruction::BST(combo_operand) => {
-                    machine.reg_b = combo_operand.get_value(&machine) & 0b111
-                }
-                Instruction::JNZ(operand) => {
-                    if machine.reg_a != 0 {
-                        ip = *operand as usize
-                    }
-                }
-                Instruction::BXC => machine.reg_b = machine.reg_b ^ machine.reg_c,
-                Instruction::OUT(combo_operand) => machine
-                    .output
-                    .push((combo_operand.get_value(&machine) & 0b111) as u8),
-                Instruction::BDV(combo_operand) => {
-                    machine.reg_b = calc_division(combo_operand, &machine)
-                }
-                Instruction::CDV(combo_operand) => {
-                    machine.reg_c = calc_division(combo_operand, &machine)
-                }
-            }
-        }
-
-        Ok(machine.output.into_iter().join(","))
+        Ok(execute(machine, &instructions))
     }
 
     assert_eq!(
         "4,6,3,5,6,3,5,2,1,0",
-        part1(BufReader::new(TEST.as_bytes()))?
+        part1(BufReader::new(TEST_PART1.as_bytes()))?
     );
 
     let input_file = BufReader::new(File::open(INPUT_FILE)?);
@@ -232,17 +247,43 @@ fn main() -> Result<()> {
     //endregion
 
     //region Part 2
-    // println!("\n=== Part 2 ===");
-    //
-    // fn part2<R: BufRead>(reader: R) -> Result<usize> {
-    //     Ok(0)
-    // }
-    //
-    // assert_eq!(0, part2(BufReader::new(TEST.as_bytes()))?);
-    //
-    // let input_file = BufReader::new(File::open(INPUT_FILE)?);
-    // let result = time_snippet!(part2(input_file)?);
-    // println!("Result = {}", result);
+    println!("\n=== Part 2 ===");
+
+    fn part2<R: BufRead>(reader: R) -> Result<usize> {
+        let (machine, instruction_text) = parse_program(reader);
+        let instructions = parse_instructions(&instruction_text);
+
+        for i in 0.. {
+            if i % 1_000_000 == 0 {
+                println!("{}", i);
+            }
+
+            let mut machine = machine.clone();
+            machine.reg_a = i;
+
+            let execution_result = execute(machine, &instructions);
+
+            if execution_result == instruction_text {
+                return Ok(i);
+            }
+
+            // if i == 117440 {
+            //     println!(
+            //         "instructions: {}\tresult: {}",
+            //         instruction_text, execution_result
+            //     );
+            //     panic!();
+            // }
+        }
+
+        panic!("How did you get here?");
+    }
+
+    assert_eq!(117440, part2(BufReader::new(TEST_PART2.as_bytes()))?);
+
+    let input_file = BufReader::new(File::open(INPUT_FILE)?);
+    let result = time_snippet!(part2(input_file)?);
+    println!("Result = {}", result);
     //endregion
 
     Ok(())
